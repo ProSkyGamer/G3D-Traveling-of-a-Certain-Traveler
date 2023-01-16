@@ -1,0 +1,21 @@
+Using pre-set license
+Built from '2020.3/staging' branch; Version is '2020.3.33f1 (915a7af8b0d5) revision 9525882'; Using compiler version '192528614'; Build Type 'Release'
+OS: 'Windows 10  (10.0.17763) 64bit EnterpriseS' Language: 'ru' Physical Memory: 6082 MB
+BatchMode: 1, IsHumanControllingUs: 0, StartBugReporterOnCrash: 0, Is64bit: 1, IsPro: 0
+
+COMMAND LINE ARGUMENTS:
+C:\Program Files\Unity\Hub\Editor\2020.3.33f1\Editor\Unity.exe
+-adb2
+-batchMode
+-noUpm
+-name
+AssetImportWorker0
+-projectPath
+C:/Users/User/Desktop/DSTU/Unity/3D Genshin-Like Game
+-logFile
+Logs/AssetImportWorker0.log
+-srvPort
+57926
+Successfully changed project path to: C:/Users/User/Desktop/DSTU/Unity/3D Genshin-Like Game
+C:/Users/User/Desktop/DSTU/Unity/3D Genshin-Like Game
+Using Asset Import Pipeline V2.
