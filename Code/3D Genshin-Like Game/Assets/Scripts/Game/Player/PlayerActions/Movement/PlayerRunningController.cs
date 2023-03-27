@@ -19,7 +19,6 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
     private Coroutine C_sprintStaminaSpending;
 
     private bool _isSprinting;
-    private bool _isRunning;
 
     private bool _canSprint;
     public bool CanSprint { get => _canSprint; private set => _canSprint = value; }
@@ -27,9 +26,9 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
 
     #region General
     private Transform _playerTransfrom;
-    private CharacterController _characterController;
     private PlayerStaminaController _playerStaminaController;
     private PlayerClimbingController _playerClimbingController;
+    private Rigidbody _rb;
     #endregion
 
 
@@ -39,9 +38,8 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
     {
         if (C_sprintStart == null)
         {
-            addToPosition = _playerTransfrom.TransformDirection(addToPosition);
             //_playerTransfrom.position = Vector3.MoveTowards(_playerTransfrom.position, _playerTransfrom.position + (addToPosition * _speed), _speed * Time.deltaTime);
-            _characterController.Move(addToPosition * speed * Time.fixedDeltaTime * 10);
+            Move(addToPosition * speed * Time.fixedDeltaTime * 10);
         }
     }
 
@@ -52,9 +50,8 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
             if (!IsSprintStarting())
             {
                 _isSprinting = true;
-                addToPosition = _playerTransfrom.TransformDirection(addToPosition);
                 //_playerTransfrom.position = Vector3.MoveTowards(_playerTransfrom.position, _playerTransfrom.position + _playerTransfrom.TransformDirection(addToPosition), sprintSpeed * Time.deltaTime);
-                _characterController.Move(addToPosition * sprintSpeed * Time.fixedDeltaTime * 10);
+                Move(addToPosition * sprintSpeed * Time.fixedDeltaTime * 10);
                 if (C_sprintStaminaSpending == null)
                     C_sprintStaminaSpending = StartCoroutine(StaminaSprintSpending());
             }
@@ -66,7 +63,7 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
         _playerStaminaController.SpendStamina(_sCostPerSprintStart);
         if (IsSprintStarting())
             StopCoroutine(C_sprintStart);
-        C_sprintStart = StartCoroutine(StartSprinting(_playerTransfrom.position, addToPosition));
+        C_sprintStart = StartCoroutine(StartSprinting(addToPosition));
     }
 
     public void StopSprint()
@@ -84,6 +81,13 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
         }
     }
 
+    private void Move(Vector3 toMove)
+    {
+        /*_playerTransfrom.position += _playerTransfrom.TransformDirection(toMove);*/
+        //_playerTransfrom.position = Vector3.MoveTowards(_playerTransfrom.position, _playerTransfrom.position + _playerTransfrom.TransformDirection(toMove), 1f);
+        _rb.MovePosition(_playerTransfrom.position + _playerTransfrom.TransformDirection(toMove));
+    }
+
     //Переменные из методов
 
     public bool IsEnoughToStartSprint()
@@ -98,20 +102,26 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
 
     private bool IsMoving()
     {
-        return _isRunning || C_sprintStart != null || _isSprinting || _playerClimbingController.IsClimbing ? true : false;
+        return C_sprintStart != null || _isSprinting || _playerClimbingController.IsClimbing ? true : false;
     }
 
 
 
     //Коротины
-    private IEnumerator StartSprinting(Vector3 currPosition, Vector3 addToPosition)
+    private IEnumerator StartSprinting(Vector3 addToPosition)
     {
-        addToPosition = _playerTransfrom.TransformDirection(addToPosition);
-        var moveTo = _playerTransfrom.position + addToPosition;
-        while (_playerTransfrom.position != moveTo)
+        Vector3 toMove = addToPosition;
+        while (true)
         {
             //_playerTransfrom.position = Vector3.MoveTowards(_playerTransfrom.position, moveTo, sprintSpeed * Time.deltaTime);
-            _characterController.Move(addToPosition * sprintSpeed * Time.fixedDeltaTime);
+            if (toMove.sqrMagnitude * sprintSpeed * Time.fixedDeltaTime > addToPosition.sqrMagnitude)
+            {
+                Move(addToPosition * sprintSpeed * Time.fixedDeltaTime);
+                break;
+            }
+            else
+                Move(toMove * sprintSpeed * Time.fixedDeltaTime);
+            addToPosition -= toMove * sprintSpeed * Time.fixedDeltaTime;
             yield return new WaitForSeconds(0.0001f);
         }
         _canSprint = true;
@@ -131,7 +141,7 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
 
 
     //Специальные методы
-    private void Update()
+    private void FixedUpdate()
     {
         if (!IsMoving())//Если не бежим и не максимум стамины
         {
@@ -148,10 +158,10 @@ public class PlayerRunningController : MonoBehaviour, ICanMove, ICanSprint
 
     private void Initialise()
     {
-        _characterController = this.gameObject.GetComponent<CharacterController>();
         _playerTransfrom = this.gameObject.GetComponent<Transform>();
         _playerStaminaController = this.gameObject.GetComponent<PlayerStaminaController>();
         _playerClimbingController = this.gameObject.GetComponent<PlayerClimbingController>();
+        _rb = this.gameObject.GetComponent<Rigidbody>();
     }
     
 

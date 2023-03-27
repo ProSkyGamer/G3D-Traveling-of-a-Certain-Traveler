@@ -10,106 +10,99 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
     [SerializeField] private LayerMask _groundLayer;
     [SerializeField] private float _jumpHeight = 3.0f;
 
-    private float _gVelocity;
+    private float _currVelocity;
     private bool _isGrounded;
     public bool IsGrounded { get => _isGrounded; private set => _isGrounded = value; }
     #endregion
 
     #region Climbing
     [Header("Climbing")]
-    [SerializeField] private float climbingSpeed = 2;
-    [SerializeField] private int sCostPerClimbMovement = 3;
-    [SerializeField] private int sCostPerClimbJump = 10;
-    [SerializeField] private float climbJumpForce = 10;
 
-    [SerializeField] private int zMinMaxDecreeForClimbing = 45;
-    private bool _canJumpClimbing = true;
-    private float _delayBetwenClimbJumps = 0.5f;
-
+    //General Climbing
     [SerializeField] private bool _isClimbing;
-    public bool IsClimbing { get => _isClimbing; private set => _isClimbing = value; }
-
-    #endregion
-
-    #region From Video
-    [SerializeField] private Transform orientation;
     [SerializeField] private LayerMask whatIsWall;
-
+    private Vector3 _rayTransform;
 
     private float _detectionLength;
 
+    //Climbing Settings
+    [SerializeField] private int zMinMaxDecreeForClimbing = 45;
+    [SerializeField] private float climbingSpeed = 1.5f;
+    [SerializeField] private float sCostPerClimbMovement = 3 / 45f;
 
-    private RaycastHit frontWallHit;
-    private bool wallFrom;
-    private Vector3 _rayTransfrom;
+    //Climb Jump Settings
+    [SerializeField] private float sCostPerClimbJump = 10f;
+    [SerializeField] private float climbJumpForce = 10f;
+    private bool _canJumpClimbing = true;
+    private float _delayBetwenClimbJumps = 0.5f;
 
-    private Transform lastWall;
-    private Vector3 lastWallNormal;
-
+    public bool IsClimbing { get => _isClimbing; private set => _isClimbing = value; }
 
     #endregion
 
     #region General
     private Transform _playerTransfrom;
-    private CharacterController _characterController;
     private PlayerStaminaController _playerStaminaController;
     private PlayerInputController _playerInputController;
+    private Rigidbody _rb;
+
+    private float _characterHeight;
+    private float _characterRadius;
     #endregion
 
-    private void WallCheck()
-    {
-        wallFrom = Physics.Raycast(_playerTransfrom.position + _playerTransfrom.TransformDirection(0, 0, _characterController.radius), _playerTransfrom.forward, out frontWallHit, _detectionLength, whatIsWall);
-    }
+    #region Debug
+    private bool _drawGizmos;
+    #endregion
 
-    public void StartClimbing()
+
+    public void StartClimbing(RaycastHit wallHit)
     {
         _isClimbing = true;
-        lastWall = frontWallHit.transform;
-        _playerTransfrom.forward = -frontWallHit.normal;
-        lastWallNormal = frontWallHit.normal; //? для вращения стены?
+        _playerTransfrom.forward = -wallHit.normal;
         _playerInputController.StopRunning();
 
         _playerStaminaController.SpendStamina(0);
         _playerInputController.LockPersonRotation();
+        Move(new Vector3(0, 0, _detectionLength));
     }
 
     public void StopClimbing()
     {
         _isClimbing = false;
         _playerInputController.UnlockPersonRotation();
-        _gVelocity = -2;
-        _characterController.Move(Vector3.zero);
+        _currVelocity = -2;
     }
 
     private void StateMachine()
     {
-        if (wallFrom && Input.GetKey(KeyCode.W))
+        RaycastHit frontWallHit;
+        bool wallFrom = Physics.Raycast(_playerTransfrom.position +
+            _playerTransfrom.TransformDirection(0, 0, _characterRadius),
+            _playerTransfrom.forward, out frontWallHit, _detectionLength, whatIsWall);
+
+        if (wallFrom && Input.GetKey(KeyCode.W) && _playerStaminaController.CurrStamina > 0)
         {
-            if (!_isClimbing) StartClimbing();
-
-            if (_playerStaminaController.CurrStamina > 0)
-                _playerStaminaController.SpendStamina(sCostPerClimbMovement / 45);
+            if (!_isClimbing)
+                StartClimbing(frontWallHit);
         }
+        else if (IsClimbing && _playerStaminaController.CurrStamina <= 0)
+            StopClimbing();
     }
 
-    private void Update()
+    /*private void Update()
     {
-        WallCheck();
         StateMachine();
-    }
+    }*/
 
     private void TryStopClimbing()
     {
         RaycastHit hit;
         var isWall = Physics.Raycast(_playerTransfrom.position, _playerTransfrom.forward, out hit);
-        if ((hit.normal.z >= zMinMaxDecreeForClimbing || hit.distance >= _characterController.radius * 2) || !isWall)
+        if ((hit.normal.z >= zMinMaxDecreeForClimbing || hit.distance >= _characterRadius * 2) || !isWall)
         {
-            _characterController.Move(new Vector3(_characterController.radius * 2, _characterController.height / 2, 0));
+            Move(new Vector3(_characterRadius * 2, _characterHeight / 2, 0));
             StopClimbing();
         }
-
-        if (_isClimbing && _playerStaminaController.CurrStamina <= 0)
-            StopClimbing();
     }
 
     private void TryMoveToPosition(Vector3 addToPosition)
@@ -117,49 +110,49 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         bool isClimbJump = addToPosition.x > 1 || addToPosition.y > 1;
         bool needChangeNormal = false;
         Vector3 newNormal = _playerTransfrom.forward;
+        Vector3 addtionalMove = Vector3.zero;
+
+        int directionX = addToPosition.x > 0 ? 1 : -1;
+        int directionY = addToPosition.y > 0 ? 1 : -1;
+
+        _rayTransform = _playerTransfrom.position + _playerTransfrom.TransformDirection(
+            new Vector3(0, 0, _characterRadius * 99 / 100));
 
         if (addToPosition.x != 0 && addToPosition.y != 0)
         {
-            _rayTransfrom = _playerTransfrom.position + _playerTransfrom.TransformDirection(
-            new Vector3(_characterController.radius + 0.06f, 0, _characterController.radius + 0.06f));
             SquareToCircle(addToPosition, isClimbJump);
+
             addToPosition = CheckXYDirectionAvailibility(addToPosition.y * Time.fixedDeltaTime * climbingSpeed,
-                addToPosition.x * Time.fixedDeltaTime * climbingSpeed, out needChangeNormal, out newNormal);
+                addToPosition.x * Time.fixedDeltaTime * climbingSpeed, out needChangeNormal, out newNormal, out addtionalMove);
         }
         else if (addToPosition.y != 0 && addToPosition.x == 0)
         {
-            _rayTransfrom = _playerTransfrom.position + _playerTransfrom.TransformDirection(
-            new Vector3(_characterController.radius + 0.06f, 0, _characterController.radius + 0.06f));
-            addToPosition = CheckYDirectionAvalibility(addToPosition.y * Time.fixedDeltaTime * climbingSpeed,
-                out needChangeNormal, out newNormal);
+            addToPosition = CheckYDirectionAvalibility(addToPosition.y * Time.fixedDeltaTime * climbingSpeed, out needChangeNormal, out newNormal, out addtionalMove);
         }
         else
         {
-            _rayTransfrom = _playerTransfrom.position + _playerTransfrom.TransformDirection(
-            new Vector3(_characterController.radius + 0.06f, 0, 0));
             addToPosition = CheckXDirectionAvalibility(addToPosition.x * Time.fixedDeltaTime * climbingSpeed,
-                out needChangeNormal, out newNormal);
+                out needChangeNormal, out newNormal, out addtionalMove);
         }
 
-        Debug.Log($"Add {addToPosition} Need {needChangeNormal} Normal {newNormal}");
+        Debug.Log($"Add {addToPosition} Need {needChangeNormal} Normal {newNormal} Additional {addtionalMove}");
 
 
         if (!needChangeNormal && addToPosition == Vector3.zero)
             return;
-        if (newNormal == Vector3.zero)
-            needChangeNormal = false;
 
-        //Возвращать значение из методов CheckDirectionAvailibility с TransfronDirection
+        needChangeNormal = needChangeNormal && newNormal != Vector3.zero;
+
         if (addToPosition != Vector3.zero)
-        {
-            _characterController.Move(_playerTransfrom.TransformDirection(addToPosition));
-        }
-        if (needChangeNormal)
-        {
-            _playerTransfrom.forward = newNormal;
-        }
+            Move(addToPosition);
 
-        _playerStaminaController.SpendStamina(isClimbJump ? sCostPerClimbJump : sCostPerClimbMovement / 45f);
+        if (needChangeNormal)
+            _playerTransfrom.forward = newNormal;
+
+        if (addtionalMove != Vector3.zero)
+            Move(addtionalMove);
+
+        _playerStaminaController.SpendStamina(isClimbJump ? sCostPerClimbJump : sCostPerClimbMovement);
     }
 
     private Vector3 SquareToCircle(Vector3 toMove, bool isClimbJump)
@@ -168,73 +161,76 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
             isClimbJump && toMove.sqrMagnitude >= 1f * climbJumpForce ? toMove.normalized * climbJumpForce : toMove;
     }
 
-    private Vector3 CheckYDirectionAvalibility(float toMoveY, out bool changeNormal, out Vector3 newNormal)
+    private Vector3 CheckYDirectionAvalibility(float toMoveY, out bool changeNormal, out Vector3 newNormal, out Vector3 additionalMove)
     {
-        int direction;
         changeNormal = false;
         newNormal = _playerTransfrom.forward;
+        additionalMove = Vector3.zero;
 
-        if (toMoveY > 0)
-            direction = 1;
-        else
-            direction = -1;
+        int direction = toMoveY > 0 ? 1 : -1;
 
         RaycastHit directionHitBulging; //Выпуклая стена
-        bool isDitrectionHitBulgin = Physics.Raycast(_rayTransfrom, _playerTransfrom.TransformDirection(
-            Vector3.up * direction), out directionHitBulging, toMoveY + _detectionLength);
+        bool isDitrectionHitBulgin = Physics.Raycast(_rayTransform, _playerTransfrom.TransformDirection(
+            Vector3.up * direction), out directionHitBulging, toMoveY + _characterHeight / 2, whatIsWall);
+
+
         if (!isDitrectionHitBulgin) //Если нет выпуклой стены
         {
             RaycastHit concaveWallHit; //Проверяем наличие вогнутой стены
-            bool isConvanceWallHit = Physics.Raycast(_rayTransfrom +
-                _playerTransfrom.TransformDirection(new Vector3(0, toMoveY, 0)),
-                _playerTransfrom.forward, out concaveWallHit, toMoveY + _detectionLength);
-            if (isConvanceWallHit && !(concaveWallHit.normal.z >= zMinMaxDecreeForClimbing) &&
-                concaveWallHit.distance <= toMoveY / 2 + _detectionLength)//Если есть вогнутая стена
-                                                       //и на ней нельзя стоять
+            bool isConvanceWallHit = Physics.Raycast(_rayTransform +
+              _playerTransfrom.TransformDirection(new Vector3(0, toMoveY, 0)),
+              _playerTransfrom.forward, out concaveWallHit, toMoveY + _detectionLength, whatIsWall);
+
+            if (isConvanceWallHit && !(concaveWallHit.normal.z >= zMinMaxDecreeForClimbing))
+            //Если есть вогнутая стена
+            //и на ней нельзя стоять
             {
-                if (concaveWallHit.normal == -_playerTransfrom.forward)//Если нормаль вогнутой стены совпадает
-                                                                       //с минус нормалью персонажа
+                if (concaveWallHit.normal == -_playerTransfrom.forward)
+                //Если нормаль вогнутой стены совпадает
+                //с минус нормалью персонажа
                 {
                     Vector3 toMove = MiddleCheck(concaveWallHit, new Vector3(
-                    0, toMoveY, 0),
-                    false, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        0, toMoveY / 2, 0)), out changeNormal, out newNormal);
+                        0, toMoveY, 0), false, _rayTransform + _playerTransfrom.
+                        TransformDirection(new Vector3(0, toMoveY / 2, 0)),
+                        out changeNormal, out newNormal);
+
                     return toMove;
                 }
-                else //Если нормаль вогнутой стены не совпдает с минус нормалью персонажа
+                else
+                //Если нормаль вогнутой стены не совпдает с минус нормалью персонажа
                 {
-                    if (concaveWallHit.normal.z >= -zMinMaxDecreeForClimbing && concaveWallHit.normal.z < zMinMaxDecreeForClimbing)//Если по стене можно карабкаться
+                    if (concaveWallHit.normal.z >= -zMinMaxDecreeForClimbing && concaveWallHit.normal.z < zMinMaxDecreeForClimbing)
+                    //Если по стене можно карабкаться
                     {
                         Vector3 toMove = FindWall(new Vector3(
                         0, toMoveY, 0),
                         concaveWallHit.normal, out changeNormal, out newNormal);
-                        if (Mathf.Tan(concaveWallHit.normal.z) * (toMoveY - toMove.sqrMagnitude) + _detectionLength <= concaveWallHit.distance)
+
+                        if (changeNormal)
+                            additionalMove = new Vector3(0, _characterHeight / 4 * direction, 0);
+
+                        if (Mathf.Tan(concaveWallHit.normal.z) * (toMoveY - toMove.magnitude) + _detectionLength <= concaveWallHit.distance)
                         //Если между текущей и след стеной ЕСТЬ пробелы
                         {
                             changeNormal = false;
                             newNormal = _playerTransfrom.forward;
+                            additionalMove = Vector3.zero;
                         }
+
                         return toMove;
-                        /*Vector3 toMove = MiddleCheck(concaveWallHit, new Vector3(
-                        0, toMoveY, 0),
-                        true, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        0, toMoveY / 2, 0)), out changeNormal, out newNormal);
-                        return toMove;*/
                     }
                     else //Если нельзя карабкаться
                     {
-                        /*Vector3 toMove = MiddleCheck(concaveWallHit, new Vector3(
-                        0, toMoveY, 0),
-                        false, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        0, toMoveY / 2, 0)), out changeNormal, out newNormal);*/
                         Vector3 toMove = FindWall(new Vector3(
                         0, toMoveY, 0),
                         -_playerTransfrom.forward, out changeNormal, out newNormal);
+
                         if (concaveWallHit.normal.z >= zMinMaxDecreeForClimbing)//Если можно стоять
                         {
                             //Метод выхода из карабканья
                             TryStopClimbing();
                         }
+
                         return toMove;
                     }
                 }
@@ -250,9 +246,10 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
 
                     if (i <= 5)
                     {
-                        isCheckHit = Physics.Raycast(_rayTransfrom + (new Vector3(
+                        isCheckHit = Physics.Raycast(_rayTransform + (new Vector3(
                             0, toMoveY * i / 5, 0)) * direction, _playerTransfrom.forward,
-                            out checkHit, _characterController.radius * 2 + _detectionLength);
+                            out checkHit, _characterRadius * 2 + _detectionLength, whatIsWall);
+
                         if (isCheckHit)
                         {
                             isWallFind = true;
@@ -264,20 +261,21 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
                     }
                     else
                     {
-                        isCheckHit = Physics.Raycast(_rayTransfrom + new Vector3(
-                            0, toMoveY + (_characterController.height * i / 10), 0) * direction,
-                            _playerTransfrom.forward, out checkHit, _characterController.radius *
-                            2 + _detectionLength);
+                        isCheckHit = Physics.Raycast(_rayTransform + new Vector3(
+                            0, toMoveY + (_characterHeight * i / 10), 0) * direction,
+                            _playerTransfrom.forward, out checkHit, _characterRadius *
+                            2 + _detectionLength, whatIsWall);
+
                         if (isCheckHit)
                         {
                             isWallFind = true;
                         }
                         else
                         {
-                            distance += _characterController.height / 10;
+                            distance += _characterHeight / 10;
                         }
                     }
-                    if (distance >= _characterController.height)
+                    if (distance >= _characterHeight)
                     {
                         //Метод выхода из карабканья
                         TryStopClimbing();
@@ -296,95 +294,103 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
                 return Vector3.zero;
             }
         }
-        else//Если есть выпуклая стена
+        else
+        //Если есть выпуклая стена
         {
-            if (directionHitBulging.distance > _characterController.height / 2) //Если есть куда продвинуться
+            if (directionHitBulging.normal.z >= -zMinMaxDecreeForClimbing &&
+                directionHitBulging.normal.z < zMinMaxDecreeForClimbing)
+            //Если можно карабкаться по стене
             {
-                if (directionHitBulging.normal.z >= -zMinMaxDecreeForClimbing &&
-                    directionHitBulging.normal.z < zMinMaxDecreeForClimbing) //Если можно карабкаться по стене
+                Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3
+                    (0, directionHitBulging.distance * direction, 0), true,
+                    _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
+                        0, directionHitBulging.distance / 2 * direction, 0)),
+                    out changeNormal, out newNormal);
+
+                if (toMove.magnitude == directionHitBulging.distance)
                 {
-                    Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
-                    0, directionHitBulging.distance * direction, 0),
-                    true, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        0, directionHitBulging.distance / 2 *
-                        direction, 0)), out changeNormal, out newNormal);
-                    return toMove;
+                    additionalMove = direction > 0 ? new Vector3(0, _characterHeight / 3 * direction, _characterHeight / 2) :
+                        new Vector3(0, -_characterHeight / 2, _characterRadius);
                 }
-                else //Если нельзя карабкаться (из-за угла)
-                {
-                    Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
-                    0, directionHitBulging.distance * direction, 0),
-                    false, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        0, directionHitBulging.distance / 2 *
-                        direction, 0)), out changeNormal, out newNormal);
-                    return toMove;
-                }
+
+                return toMove;
             }
-            else //Если некуда продвинуться вверх
-                return Vector3.zero;
+            else //Если нельзя карабкаться (из-за угла)
+            {
+                Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(0, directionHitBulging.distance * direction, 0),
+                    false, _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
+                        0, directionHitBulging.distance / 2 * direction, 0)), out changeNormal, out newNormal);
+
+                return toMove;
+            }
         }
     }
 
-    private Vector3 CheckXDirectionAvalibility(float toMoveX, out bool changeNormal, out Vector3 newNormal)
+    private Vector3 CheckXDirectionAvalibility(float toMoveX, out bool changeNormal, out Vector3 newNormal, out Vector3 additionalMove)
     {
-        int direction;
         changeNormal = false;
         newNormal = _playerTransfrom.forward;
-        if (toMoveX > 0)
-            direction = 1;
-        else
-            direction = -1;
+        additionalMove = Vector3.zero;
+
+        int direction = toMoveX > 0 ? 1 : -1;
 
         RaycastHit directionHitBulging; //Выпуклая стена
-        bool isDirectionHitBulgin = Physics.Raycast(_rayTransfrom,
-            _playerTransfrom.forward + new Vector3(0, 90 * direction, 0),
-            out directionHitBulging, toMoveX + _detectionLength);
+        bool isDirectionHitBulgin = Physics.Raycast(_rayTransform,
+            _playerTransfrom.TransformDirection(Vector3.right * direction),
+            out directionHitBulging, toMoveX * direction + _characterRadius, whatIsWall);
+
         if (!isDirectionHitBulgin) //Если нет выпуклой стены
         {
             RaycastHit concaveWallHit; //Вогнутая стена
-            bool isConvaceWallHit = Physics.Raycast(_rayTransfrom +
-                _playerTransfrom.TransformDirection(new Vector3(
-                    toMoveX, 0, 0)), _playerTransfrom.forward,
-                    out concaveWallHit, toMoveX + _detectionLength);
+            bool isConvaceWallHit = Physics.Raycast(_rayTransform + _playerTransfrom.
+             TransformDirection(new Vector3(toMoveX, 0, 0)), _playerTransfrom.forward,
+             out concaveWallHit, toMoveX + _detectionLength, whatIsWall);
+
             if (isConvaceWallHit && concaveWallHit.normal == -_playerTransfrom.forward &&
                 concaveWallHit.distance <= toMoveX / 2 + _detectionLength)
             //Если есть вогнутая стена и нормаль совпадает
             {
-                Vector3 toMove = MiddleCheck(concaveWallHit, new Vector3(
-                    toMoveX, 0, 0),
-                    false, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
+                Vector3 toMove = MiddleCheck(concaveWallHit, new Vector3(toMoveX, 0, 0),
+                    false, _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
                         toMoveX / 2, 0, 0)), out changeNormal, out newNormal);
+
                 return toMove;
             }
-            else if (isConvaceWallHit && concaveWallHit.normal != _playerTransfrom.forward)
+            else if (isConvaceWallHit && concaveWallHit.normal != -_playerTransfrom.forward)
             //Если есть вогнутая стена но нормаль не совпадает (изгиб)
             {
                 Vector3 toMove = FindWall(new Vector3(toMoveX, 0, 0), concaveWallHit.normal, out changeNormal, out newNormal);
+
+                additionalMove = new Vector3(_characterRadius / 2 * direction, 0, _characterRadius / 2);
+
                 return toMove;
             }
             else
             {
                 Vector3 toMove = FindWall(new Vector3(toMoveX, 0, 0), -_playerTransfrom.forward, out changeNormal, out newNormal);
+
                 return toMove;
             }
         }
         else //Если есть выпуклая стена
         {
-            Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
-                    directionHitBulging.distance * direction, 0, 0),
-                    true, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
-                        directionHitBulging.distance / 2 *
-                        direction, 0, 0)), out changeNormal, out newNormal);
+            Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3((directionHitBulging.distance > _characterRadius ? directionHitBulging.distance
+                - _characterRadius : directionHitBulging.distance) * direction, 0, 0), true, _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
+                    (_characterRadius + (directionHitBulging.distance - _characterRadius) / 2) * direction, 0, 0)), out changeNormal, out newNormal);
+
+            additionalMove = new Vector3(0, 0, _characterRadius);
+
             return toMove;
         }
     }
 
-    private Vector3 CheckXYDirectionAvailibility(float toMoveY, float toMoveX, out bool changeNormal, out Vector3 newNormal)
+    private Vector3 CheckXYDirectionAvailibility(float toMoveY, float toMoveX, out bool changeNormal, out Vector3 newNormal, out Vector3 additionalMove)
     {
         int directionX;
         int directionY;
         changeNormal = false;
         newNormal = _playerTransfrom.forward;
+        additionalMove = Vector3.zero;
 
         if (toMoveY > 0)
             directionY = 1;
@@ -402,21 +408,21 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         float lenToMoveXY = Mathf.Sqrt(
                 toMoveX * toMoveX + toMoveY * toMoveY);
 
-        RaycastHit directionHitBulging;
-        bool isDirectionHitBulgin = Physics.Raycast(_rayTransfrom,
-            _playerTransfrom.forward + new Vector3(angleXY * directionY,
-            90 * directionX, 0), out directionHitBulging, lenToMoveXY + _detectionLength);
+        float radHeight = Mathf.Sqrt(_characterHeight * _characterHeight / 4
+                + _characterRadius * _characterRadius);
 
-        float radHeight = Mathf.Sqrt(_characterController.height * _characterController.height / 4
-                + _characterController.radius * _characterController.radius);
+        RaycastHit directionHitBulging;
+        bool isDirectionHitBulgin = Physics.Raycast(_rayTransform,
+            _playerTransfrom.forward + new Vector3(angleXY * directionY,
+            90 * directionX, 0), out directionHitBulging, lenToMoveXY + radHeight, whatIsWall);
 
         if (!isDirectionHitBulgin)
         {
             RaycastHit concaveWallHit; //Проверяем наличие вогнутой стены
-            bool isConvanceWallHit = Physics.Raycast(_rayTransfrom +
+            bool isConvanceWallHit = Physics.Raycast(_rayTransform +
                 _playerTransfrom.TransformDirection(new Vector3(
                     toMoveX, toMoveY, 0)),
-                    _playerTransfrom.forward, out concaveWallHit, lenToMoveXY + _detectionLength);
+                    _playerTransfrom.forward, out concaveWallHit, lenToMoveXY + _detectionLength, whatIsWall);
 
             if (isConvanceWallHit && concaveWallHit.distance <= lenToMoveXY + _detectionLength
                 && concaveWallHit.normal == -_playerTransfrom.forward)
@@ -425,7 +431,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
                 Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
                     toMoveX,
                     toMoveY,
-                    0), false, _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
+                    0), false, _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
                     toMoveX / 2,
                     toMoveY / 2,
                     0)), out changeNormal, out newNormal);
@@ -457,7 +463,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
                 {
                     Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
                         0, directionHitBulging.distance * directionX, 0), true,
-                        _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
+                        _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
                             (directionHitBulging.distance * Mathf.Cos(angleXY)) / 2 * directionX,
                             (directionHitBulging.distance * Mathf.Sin(angleXY)) / 2 * directionY,
                             0)), out changeNormal, out newNormal);
@@ -479,7 +485,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
                 {
                     Vector3 toMove = MiddleCheck(directionHitBulging, new Vector3(
                     0, directionHitBulging.distance * directionX, 0), false,
-                    _rayTransfrom + _playerTransfrom.TransformDirection(new Vector3(
+                    _rayTransform + _playerTransfrom.TransformDirection(new Vector3(
                         (directionHitBulging.distance * Mathf.Cos(angleXY)) / 2 * directionX,
                         (directionHitBulging.distance * Mathf.Sin(angleXY)) / 2 * directionY,
                         0)), out changeNormal, out newNormal);
@@ -498,7 +504,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         changeNormal = false;
         newNormal = _playerTransfrom.forward;
         RaycastHit middleHit;
-        bool isMiddleHit = Physics.Raycast(rayMiddle, _playerTransfrom.forward, out middleHit, toMove.sqrMagnitude + _detectionLength);
+        bool isMiddleHit = Physics.Raycast(rayMiddle, _playerTransfrom.forward, out middleHit, toMove.magnitude + _detectionLength, whatIsWall);
 
         if (isMiddleHit && middleHit.normal == -_playerTransfrom.forward)
         {
@@ -517,8 +523,8 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
 
             for (int i = 1; i < 5; i++)
             {
-                isWallFindHit = Physics.Raycast(_rayTransfrom + _playerTransfrom.TransformDirection(
-                    toMove * i / (5 * 2)), _playerTransfrom.forward, out wallFindHit, toMove.sqrMagnitude + _detectionLength);
+                isWallFindHit = Physics.Raycast(_rayTransform + _playerTransfrom.TransformDirection(
+                    toMove * i / (5 * 2)), _playerTransfrom.forward, out wallFindHit, toMove.magnitude + _detectionLength, whatIsWall);
                 if (!isWallFindHit)
                     return toMove * (i - 1) / (5 * 2);
                 else if (wallFindHit.normal != -_playerTransfrom.forward)
@@ -545,8 +551,8 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         newNormal = _playerTransfrom.forward;
 
         RaycastHit middleHit;
-        bool isMiddleHit = Physics.Raycast(_rayTransfrom + _playerTransfrom.TransformDirection(
-            toMove / 2), _playerTransfrom.forward, out middleHit, toMove.sqrMagnitude + _detectionLength);
+        bool isMiddleHit = Physics.Raycast(_rayTransform + _playerTransfrom.TransformDirection(
+            toMove / 2), _playerTransfrom.forward, out middleHit, toMove.magnitude + _detectionLength, whatIsWall);
 
         if (isMiddleHit && middleHit.normal == -_playerTransfrom.forward)
         {
@@ -561,8 +567,8 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         for (int i = minI; i < maxI; i++)
         {
             RaycastHit findHit;
-            bool isFindHit = Physics.Raycast(_rayTransfrom + _playerTransfrom.TransformDirection(
-                 toMove * i / 5 * 2), _playerTransfrom.forward, out findHit, toMove.sqrMagnitude + _detectionLength);
+            bool isFindHit = Physics.Raycast(_rayTransform + _playerTransfrom.TransformDirection(
+                 toMove * i / 5 * 2), _playerTransfrom.forward, out findHit, toMove.magnitude + _detectionLength, whatIsWall);
             if (isFindHit && findHit.normal != -_playerTransfrom.forward)
             {
                 changeNormal = true;
@@ -590,7 +596,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         }
 
         addToPosition = _playerTransfrom.TransformDirection(addToPosition);
-        _characterController.Move(addToPosition * climbingSpeed * Time.fixedDeltaTime);
+        Move(addToPosition * climbingSpeed * Time.fixedDeltaTime);
         _playerStaminaController.SpendStamina(sCostPerClimbMovement / 45f);
 
         TryStopClimbing();*/
@@ -602,7 +608,7 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         if (_canJumpClimbing)
         {
             /*addToPosition = _playerTransfrom.TransformDirection(addToPosition);
-            _characterController.Move(addToPosition * climbingSpeed * Time.fixedDeltaTime * 10);
+            Move(addToPosition * climbingSpeed * Time.fixedDeltaTime * 10);
             _playerStaminaController.SpendStamina(sCostPerClimbJump);*/
             TryMoveToPosition(addToPosition * climbJumpForce);
 
@@ -615,14 +621,17 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
 
     public void Jump()
     {
-        _gVelocity = Mathf.Sqrt(_jumpHeight * -2f * _gravity);
+        _currVelocity = Mathf.Sqrt(_jumpHeight * -2f * _gravity);
     }
 
 
 
     private bool IsOnTheGround()
     {
-        return Physics.CheckSphere(_playerTransfrom.position - new Vector3(0, _characterController.height / 2, 0), 0.3f, _groundLayer);
+        RaycastHit groundHit;
+        bool isGroundHit = Physics.Raycast(_playerTransfrom.position, Vector3.down, out groundHit, _characterHeight, _groundLayer);
+        return isGroundHit && groundHit.distance <= _characterHeight / 2;
+
     }
 
 
@@ -638,9 +647,15 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
 
     private void DoGravity()
     {
-        _gVelocity += _gravity * Time.fixedDeltaTime;
+        _currVelocity += _gravity * Time.fixedDeltaTime;
 
-        _characterController.Move(Vector3.up * _gVelocity * Time.fixedDeltaTime);
+        Move(Vector3.up * _currVelocity * Time.fixedDeltaTime);
+    }
+
+    private void Move(Vector3 toMove)
+    {
+        //_playerTransfrom.position = Vector3.MoveTowards(_playerTransfrom.position, _playerTransfrom.position + _playerTransfrom.TransformDirection(toMove), 1f);
+        _rb.MovePosition(_playerTransfrom.position + _playerTransfrom.TransformDirection(toMove));
     }
 
     private void FixedUpdate()
@@ -648,12 +663,11 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
         if (!_isClimbing)
         {
             _isGrounded = IsOnTheGround();
-            if (_isGrounded && _gVelocity < 0)
-                _gVelocity = -2;
-            DoGravity();
+            if (!_isGrounded || _currVelocity > 0)
+                DoGravity();
         }
-        else if (_playerStaminaController.CurrStamina <= 0)
-            _isClimbing = false;
+        _rb.velocity = Vector3.zero;
+        StateMachine();
     }
 
     private void Awake()
@@ -663,17 +677,27 @@ public class PlayerClimbingController : MonoBehaviour, ICanJump, ICanClimb
 
     private void Initialise()
     {
-        _characterController = this.gameObject.GetComponent<CharacterController>();
         _playerTransfrom = this.gameObject.GetComponent<Transform>();
         _playerStaminaController = this.gameObject.GetComponent<PlayerStaminaController>();
         _playerInputController = this.gameObject.GetComponent<PlayerInputController>();
+        _rb = this.gameObject.GetComponent<Rigidbody>();
 
-        _detectionLength = 0.15f;
+        var collider = this.gameObject.GetComponent<CapsuleCollider>();
+        _characterHeight = collider.height;
+        _characterRadius = collider.radius;
+
+        _detectionLength = 0.1f + _characterRadius * 1 / 100;
+
+        _drawGizmos = true;
     }
 
     private void OnDrawGizmos()
     {
-        Gizmos.color = Color.blue;
-        Gizmos.DrawRay(transform.position + transform.TransformDirection(0, 0, 0.5f), transform.forward * 1f);
+        if (_drawGizmos)
+        {
+            Gizmos.color = Color.blue;
+            Gizmos.DrawRay(_rayTransform, _playerTransfrom.TransformDirection(Vector3.right) * 1f);
+            Gizmos.DrawRay(_rayTransform, _playerTransfrom.forward * 1f);
+        }
     }
 }
